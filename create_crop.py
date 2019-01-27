@@ -1,24 +1,28 @@
 from PIL import Image
 
-TEST_DIC = "dataset/test/"
-TEST_SPLIT_DIC = "test_split/"
-MAX_TEST_FILE = 169
+DIC = "CarData/TestImages/"
+SPLIT_DIC = "result/test_split/"
+
+MAX_FILES = 169
+STEP = 10
+WINDOW_W = 100
+WINDOW_H = 40
 
 
-def create_crop(image, step_height, step_width):
-    img = Image.open(TEST_DIC + image + ".pgm")
+def create_and_save_crops(image, step_height, step_width):
+    img = Image.open(DIC + image + ".pgm")
     img_width, img_height = img.size
-    k = 0
     for i in range(0, img_height, step_height):
-        if i + 20 > img_height:
+        if i + WINDOW_H - STEP > img_height:
             break
         for j in range(0, img_width, step_width):
-            if j + 50 > img_width:
+            if j + WINDOW_W - STEP > img_width:
                 break
-            box = (j, i, j + 100, i + 40)
-            img.crop(box).save(TEST_SPLIT_DIC + image + "_" + str(k) + ".pgm")
-            k += 1
+            box = (j, i, j + WINDOW_W, i + WINDOW_H)
+            img.crop(box).save(
+                SPLIT_DIC + image + "_" + str(j) + "_" + str(i) + "_" + str(j + WINDOW_W) + "_" + str(
+                    i + WINDOW_H) + ".pgm")
 
 
-for i in range(MAX_TEST_FILE):
-    create_crop("test-" + str(i), 10, 10)
+for file_no in range(MAX_FILES):
+    create_and_save_crops("test-" + str(file_no), STEP, STEP)
