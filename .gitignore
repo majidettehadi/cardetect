@@ -1,3 +1,5 @@
 venv/
-dataset/
+CarData/
 .idea/
+result/test_split
+result/test_split_scale
