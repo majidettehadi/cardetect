@@ -3,3 +3,5 @@ CarData/
 .idea/
 result/test_split
 result/test_split_scale
+model/save
+__pycache__/
