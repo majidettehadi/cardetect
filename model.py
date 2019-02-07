@@ -11,110 +11,90 @@ from sklearn.model_selection import train_test_split
 
 DIC = "CarData/TrainImages/"
 
+EPOCHS = 50
+BATCH_SIZE = 64
+NUM_CLASSES = 2
+ALPHA = 0.05
+WINDOW_W = 100
+WINDOW_H = 40
 
-class CNNModel:
-    NUM_CLASSES = 2
-    WINDOW_W = 100
-    WINDOW_H = 40
+MODEL_FILE = "model/model.json"
+MODEL_WEIGHT_FILE = "model/model.h5"
 
-    DROPOUTS = []
-    NODES = []
 
-    train_data = []
-    train_label = []
-    valid_data = []
-    valid_label = []
+def read_pgm(filename, byteorder='>'):
+    with open(filename, 'rb') as f:
+        buffer = f.read()
+    try:
+        header, width, height, maxval = re.search(
+            b"(^P5\s(?:\s*#.*[\r\n])*"
+            b"(\d+)\s(?:\s*#.*[\r\n])*"
+            b"(\d+)\s(?:\s*#.*[\r\n])*"
+            b"(\d+)\s(?:\s*#.*[\r\n]\s)*)", buffer).groups()
+    except AttributeError:
+        raise ValueError("Not a raw PGM file: '%s'" % filename)
+    return np.frombuffer(buffer,
+                         dtype='u1' if int(maxval) < 256 else byteorder + 'u2',
+                         count=int(width) * int(height),
+                         offset=len(header)
+                         ).reshape((int(height), int(width)))
 
-    train = None
 
-    def __init__(self, filename):
-        self.model = Sequential()
-        with open(filename) as f:
-            lines = f.readlines()
-            self.MODEL_FILE = "model/save/model_" + lines[0] + ".json"
-            self.MODEL_WEIGHT_FILE = "model/save/model_" + lines[0] + ".h5"
-            self.EPOCHS = int(lines[1])
-            self.BATCH_SIZE = int(lines[2])
-            self.ALPHA = float(lines[3])
-            self.TEST_SIZE = float(lines[4])
-            self.RANDOM_STATE = int(lines[5])
-            for dropout in lines[6].split(","):
-                self.DROPOUTS.append(float(dropout))
-            for node in lines[7].split(","):
-                self.NODES.append(int(node))
+def load_data():
+    train_loaded = []
+    train_label_loaded = []
+    for f in glob.glob(DIC + "*.pgm"):
+        train_loaded.append(read_pgm(f, byteorder='<'))
+        if "neg" in f:
+            train_label_loaded.append(1)
+        else:
+            train_label_loaded.append(0)
+    return train_loaded, train_label_loaded
 
-    def load_data(self):
-        for f in glob.glob(DIC + "*.pgm"):
-            self.train_data.append(self.read_pgm(f, byteorder='<'))
-            if "neg" in f:
-                self.train_label.append(1)
-            else:
-                self.train_label.append(0)
 
-    def prepossessing(self):
-        self.train_data = np.array(self.train_data).reshape(-1, self.WINDOW_W, self.WINDOW_H, 1)
-        self.train_data = self.train_data.astype('float32')
-        self.train_data = self.train_data / 255.
-        self.train_label = np.array(self.train_label)
+train_data, train_label = load_data()
 
-    def gen_valid_data(self):
-        train_label_one_hot = to_categorical(self.train_label)
-        self.train_data, self.valid_data, self.train_label, self.valid_label = \
-            train_test_split(self.train_data,
-                             train_label_one_hot,
-                             test_size=self.TEST_SIZE,
-                             random_state=self.RANDOM_STATE)
+# prepossessing
+train_data = np.array(train_data).reshape(-1, WINDOW_W, WINDOW_H, 1)
+train_data = train_data.astype('float32')
+train_data = train_data / 255.
 
-    def compile_model(self):
-        self.model.add(
-            Conv2D(self.NODES[0], kernel_size=(3, 3), activation='linear',
-                   input_shape=(self.WINDOW_W, self.WINDOW_H, 1), padding='same'))
-        self.model.add(LeakyReLU(alpha=self.ALPHA))
-        self.model.add(MaxPooling2D((2, 2), padding='same'))
-        self.model.add(Dropout(self.DROPOUTS[0]))
-        self.model.add(Conv2D(self.NODES[1], (3, 3), activation='linear', padding='same'))
-        self.model.add(LeakyReLU(alpha=self.ALPHA))
-        self.model.add(MaxPooling2D(pool_size=(2, 2), padding='same'))
-        self.model.add(Dropout(self.DROPOUTS[1]))
-        self.model.add(Conv2D(self.NODES[2], (3, 3), activation='linear', padding='same'))
-        self.model.add(LeakyReLU(alpha=self.ALPHA))
-        self.model.add(MaxPooling2D(pool_size=(2, 2), padding='same'))
-        self.model.add(Dropout(self.DROPOUTS[2]))
-        self.model.add(Flatten())
-        self.model.add(Dense(self.NODES[3], activation='linear'))
-        self.model.add(LeakyReLU(alpha=self.ALPHA))
-        self.model.add(Dropout(self.DROPOUTS[3]))
-        self.model.add(Dense(self.NUM_CLASSES, activation='softmax'))
-        self.model.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adam(),
-                           metrics=['accuracy'])
+train_label = np.array(train_label)
+train_label_one_hot = to_categorical(train_label)
+train_data, valid_data, train_label, valid_label = train_test_split(train_data, train_label_one_hot, test_size=0.01,
+                                                                    random_state=13)
 
-    def train_model(self):
-        self.train = self.model.fit(self.train_data, self.train_label, batch_size=self.BATCH_SIZE, epochs=self.EPOCHS,
-                                    verbose=1, validation_data=(self.valid_data, self.valid_label))
+model = Sequential()
+model.add(Conv2D(32, kernel_size=(3, 3), activation='linear', input_shape=(WINDOW_W, WINDOW_H, 1), padding='same'))
+model.add(LeakyReLU(alpha=ALPHA))
+model.add(MaxPooling2D((2, 2), padding='same'))
+model.add(Dropout(0.25))
+model.add(Conv2D(64, (3, 3), activation='linear', padding='same'))
+model.add(LeakyReLU(alpha=ALPHA))
+model.add(MaxPooling2D(pool_size=(2, 2), padding='same'))
+model.add(Dropout(0.25))
+model.add(Conv2D(128, (3, 3), activation='linear', padding='same'))
+model.add(LeakyReLU(alpha=ALPHA))
+model.add(MaxPooling2D(pool_size=(2, 2), padding='same'))
+model.add(Dropout(0.4))
+model.add(Flatten())
+model.add(Dense(128, activation='linear'))
+model.add(LeakyReLU(alpha=ALPHA))
+model.add(Dropout(0.3))
+model.add(Dense(NUM_CLASSES, activation='softmax'))
 
-    def print_score(self):
-        scores = self.model.evaluate(self.train_data, self.train_label, verbose=0)
-        print("%s: %.2f%%" % (self.model.metrics_names[1], scores[1] * 100))
+model.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adam(),
+              metrics=['accuracy'])
+model.summary()
 
-    def save_model(self):
-        with open(self.MODEL_FILE, "w") as json_file:
-            json_file.write(self.model.to_json())
-        self.model.save_weights(self.MODEL_WEIGHT_FILE)
-        print("Saved model to disk")
+train = model.fit(train_data, train_label, batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=1,
+                  validation_data=(valid_data, valid_label))
 
-    def read_pgm(self, filename, byteorder='>'):
-        with open(filename, 'rb') as f:
-            buffer = f.read()
-        try:
-            header, width, height, maxval = re.search(
-                b"(^P5\s(?:\s*#.*[\r\n])*"
-                b"(\d+)\s(?:\s*#.*[\r\n])*"
-                b"(\d+)\s(?:\s*#.*[\r\n])*"
-                b"(\d+)\s(?:\s*#.*[\r\n]\s)*)", buffer).groups()
-        except AttributeError:
-            raise ValueError("Not a raw PGM file: '%s'" % filename)
-        return np.frombuffer(buffer,
-                             dtype='u1' if int(maxval) < 256 else byteorder + 'u2',
-                             count=int(width) * int(height),
-                             offset=len(header)
-                             ).reshape((int(height), int(width)))
+scores = model.evaluate(train_data, train_label, verbose=0)
+print("%s: %.2f%%" % (model.metrics_names[1], scores[1] * 100))
+
+model_json = model.to_json()
+with open(MODEL_FILE, "w") as json_file:
+    json_file.write(model_json)
+model.save_weights(MODEL_WEIGHT_FILE)
+print("Saved model to disk")
